@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { supabase } from "@/integrations/supabase/client";
+import { mockAuth } from "@/lib/mock-auth";
 import { useToast } from "@/hooks/use-toast";
 import { 
   MessageCircle, 
@@ -23,19 +23,12 @@ interface Chat {
   name: string | null;
   is_group: boolean;
   updated_at: string;
-  participants: Array<{
-    user_id: string;
-    profiles: {
-      display_name: string | null;
-      avatar_url: string | null;
-      status: string;
-    } | null;
-  }>;
-  messages: Array<{
+  participants: string[];
+  lastMessage?: {
     content: string;
     created_at: string;
     sender_id: string;
-  }>;
+  };
 }
 
 interface Profile {
@@ -47,131 +40,65 @@ interface ChatListProps {
   currentUser: any;
   onChatSelect: (chatId: string) => void;
   onSignOut: () => void;
+  onShowSettings: () => void;
 }
 
-export function ChatList({ currentUser, onChatSelect, onSignOut }: ChatListProps) {
+export function ChatList({ currentUser, onChatSelect, onSignOut, onShowSettings }: ChatListProps) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [userStatus, setUserStatus] = useState<'online' | 'away' | 'busy'>('online');
   const { toast } = useToast();
 
+  // Mock data
+  const mockChats: Chat[] = [
+    {
+      id: '1',
+      name: 'General Chat',
+      is_group: true,
+      participants: ['1', '2'],
+      updated_at: new Date().toISOString(),
+      lastMessage: {
+        content: 'Welcome to SecureChat! This is a demo message.',
+        created_at: new Date(Date.now() - 60000).toISOString(),
+        sender_id: '2'
+      }
+    },
+    {
+      id: '2',
+      name: null,
+      is_group: false,
+      participants: ['1', '2'],
+      updated_at: new Date(Date.now() - 120000).toISOString(),
+      lastMessage: {
+        content: 'This is a private conversation between you and Test User.',
+        created_at: new Date(Date.now() - 120000).toISOString(),
+        sender_id: '2'
+      }
+    }
+  ];
+
+  const mockProfiles = {
+    '1': { display_name: 'Demo User', avatar_url: null, status: 'online' },
+    '2': { display_name: 'Test User', avatar_url: null, status: 'online' }
+  };
+
   useEffect(() => {
-    fetchProfile();
-    fetchChats();
-    
-    // Subscribe to real-time chat updates
-    const channel = supabase
-      .channel('chat-updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        () => {
-          fetchChats();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'chats' },
-        () => {
-          fetchChats();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const fetchProfile = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('display_name, avatar_url')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (error) throw error;
-      setProfile(data);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-    }
-  };
-
-  const fetchChats = async () => {
-    try {
-      const { data: chatsData, error: chatsError } = await supabase
-        .from('chats')
-        .select(`
-          id,
-          name,
-          is_group,
-          updated_at
-        `)
-        .order('updated_at', { ascending: false });
-
-      if (chatsError) throw chatsError;
-
-      // Fetch participants and messages separately to avoid complex joins
-      const chatsWithDetails = await Promise.all(
-        (chatsData || []).map(async (chat) => {
-          // Get participants with profiles
-          const { data: participants } = await supabase
-            .from('chat_participants')
-            .select(`
-              user_id
-            `)
-            .eq('chat_id', chat.id);
-
-          // Get profiles for participants
-          const participantsWithProfiles = await Promise.all(
-            (participants || []).map(async (participant) => {
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('display_name, avatar_url, status')
-                .eq('user_id', participant.user_id)
-                .single();
-
-              return {
-                user_id: participant.user_id,
-                profiles: profile
-              };
-            })
-          );
-
-          // Get latest messages
-          const { data: messages } = await supabase
-            .from('messages')
-            .select('content, created_at, sender_id')
-            .eq('chat_id', chat.id)
-            .order('created_at', { ascending: false })
-            .limit(1);
-
-          return {
-            ...chat,
-            participants: participantsWithProfiles,
-            messages: messages || []
-          };
-        })
-      );
-      
-      setChats(chatsWithDetails);
-    } catch (error) {
-      console.error('Error fetching chats:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to load chats"
+    // Simulate loading
+    setTimeout(() => {
+      setProfile({
+        display_name: currentUser?.display_name || 'Demo User',
+        avatar_url: null
       });
-    } finally {
+      setChats(mockChats);
       setIsLoading(false);
-    }
-  };
+    }, 500);
+  }, [currentUser]);
 
   const handleSignOut = async () => {
     try {
-      await supabase.auth.signOut();
+      await mockAuth.signOut();
       onSignOut();
     } catch (error) {
       console.error('Error signing out:', error);
@@ -183,9 +110,7 @@ export function ChatList({ currentUser, onChatSelect, onSignOut }: ChatListProps
     
     const chatName = chat.is_group 
       ? chat.name || "Group Chat"
-      : chat.participants
-          .find(p => p.user_id !== currentUser.id)
-          ?.profiles?.display_name || "Unknown User";
+      : mockProfiles['2']?.display_name || "Unknown User";
     
     return chatName.toLowerCase().includes(searchQuery.toLowerCase());
   });
@@ -199,46 +124,56 @@ export function ChatList({ currentUser, onChatSelect, onSignOut }: ChatListProps
       };
     }
     
-    const otherParticipant = chat.participants.find(p => p.user_id !== currentUser.id);
+    // For private chats, show the other user
+    const otherUserId = chat.participants.find(id => id !== currentUser?.id) || '2';
+    const otherUser = mockProfiles[otherUserId as keyof typeof mockProfiles];
+    
     return {
-      name: otherParticipant?.profiles?.display_name || "Unknown User",
-      avatar: otherParticipant?.profiles?.avatar_url,
-      status: otherParticipant?.profiles?.status || "offline"
+      name: otherUser?.display_name || "Test User",
+      avatar: otherUser?.avatar_url,
+      status: otherUser?.status || "online"
     };
   };
 
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b bg-card/50 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Avatar className="h-10 w-10">
+      <div className="flex items-center justify-between p-2 sm:p-4 border-b bg-card/50 backdrop-blur-sm">
+        <div className="flex items-center gap-2 flex-1 min-w-0 overflow-hidden">
+          <div className="relative flex-shrink-0">
+            <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
               <AvatarImage src={profile?.avatar_url || undefined} />
-              <AvatarFallback className="gradient-primary text-white">
-                {profile?.display_name?.[0] || currentUser.email?.[0] || "U"}
+              <AvatarFallback className="gradient-primary text-white text-xs sm:text-sm">
+                {profile?.display_name?.[0] || currentUser?.email?.[0] || "U"}
               </AvatarFallback>
             </Avatar>
-            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-success rounded-full border-2 border-background"></div>
+            <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 sm:w-3 sm:h-3 bg-success rounded-full border border-background"></div>
           </div>
-          <div>
-            <h2 className="font-semibold text-sm">{profile?.display_name || "User"}</h2>
-            <p className="text-xs text-muted-foreground">Online</p>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <h2 className="font-semibold text-xs sm:text-sm truncate">{profile?.display_name || "User"}</h2>
+            <p className="text-xs text-muted-foreground capitalize hidden sm:block">{userStatus}</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
           <ThemeToggle />
-          <Button variant="ghost" size="icon" className="h-9 w-9">
-            <Settings className="h-4 w-4" />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-7 w-7 sm:h-9 sm:w-9 flex-shrink-0"
+            onClick={onShowSettings}
+            title="Settings"
+          >
+            <Settings className="h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
           <Button 
             variant="ghost" 
             size="icon" 
-            className="h-9 w-9"
+            className="h-7 w-7 sm:h-9 sm:w-9 flex-shrink-0"
             onClick={handleSignOut}
+            title="Sign Out"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
         </div>
       </div>
@@ -255,10 +190,6 @@ export function ChatList({ currentUser, onChatSelect, onSignOut }: ChatListProps
           />
         </div>
         
-        <Button className="w-full gradient-primary text-white" size="sm">
-          <Plus className="h-4 w-4 mr-2" />
-          New Chat
-        </Button>
       </div>
 
       {/* Chat List */}
@@ -283,7 +214,7 @@ export function ChatList({ currentUser, onChatSelect, onSignOut }: ChatListProps
           <div className="space-y-1 pb-4">
             {filteredChats.map((chat) => {
               const displayInfo = getChatDisplayInfo(chat);
-              const lastMessage = chat.messages[0];
+              const lastMessage = chat.lastMessage;
               
               return (
                 <Card

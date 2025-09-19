@@ -1,22 +1,29 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { mockAuth, MockUser, MockSession } from "@/lib/mock-auth";
 import { AuthForm } from "@/components/auth/auth-form";
 import { ChatList } from "@/components/chat/chat-list";
 import { ChatView } from "@/components/chat/chat-view";
-import { User, Session } from "@supabase/supabase-js";
+import { Settings } from "@/pages/Settings";
+import { EnhancedCryptoPanel } from "@/components/crypto/enhanced-crypto-panel";
 import { useToast } from "@/hooks/use-toast";
+import { MessageCircle } from "lucide-react";
 
 const Index = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<MockUser | null>(null);
+  const [session, setSession] = useState<MockSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [cryptoPanelInput, setCryptoPanelInput] = useState<string>("");
   const { toast } = useToast();
 
   useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    console.log('Setting up auth state listener...');
+    
+    // Set up mock auth state listener
+    const subscription = mockAuth.onAuthStateChange(
       async (event, session) => {
+        console.log('Auth state change:', event, session);
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -40,21 +47,34 @@ const Index = () => {
     );
 
     // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    });
+    const currentSession = mockAuth.getSession();
+    console.log('Current session on load:', currentSession);
+    setSession(currentSession);
+    setUser(currentSession?.user ?? null);
+    setIsLoading(false);
 
     return () => subscription.unsubscribe();
   }, [toast]);
 
   const handleAuthSuccess = () => {
-    // Auth state change will be handled by the listener
+    // Manually check for session after auth success
+    setTimeout(() => {
+      const currentSession = mockAuth.getSession();
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      setIsLoading(false);
+    }, 200);
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    await mockAuth.signOut();
+    setUser(null);
+    setSession(null);
     setSelectedChatId(null);
+    toast({
+      title: "Signed out",
+      description: "You have been signed out successfully.",
+    });
   };
 
   const handleChatSelect = (chatId: string) => {
@@ -63,6 +83,14 @@ const Index = () => {
 
   const handleBackToChats = () => {
     setSelectedChatId(null);
+  };
+
+  const handleShowSettings = () => {
+    setShowSettings(true);
+  };
+
+  const handleBackFromSettings = () => {
+    setShowSettings(false);
   };
 
   // Loading state
@@ -83,9 +111,14 @@ const Index = () => {
     return <AuthForm onAuthSuccess={handleAuthSuccess} />;
   }
 
+  // Show Settings if requested
+  if (showSettings) {
+    return <Settings currentUser={user} onBack={handleBackFromSettings} />;
+  }
+
   // Authenticated - show chat interface
   return (
-    <div className="h-screen overflow-hidden">
+    <div className="h-screen overflow-hidden relative">
       <div className="flex h-full">
         {/* Mobile: Show either chat list OR chat view */}
         <div className="flex-1 md:hidden">
@@ -94,12 +127,15 @@ const Index = () => {
               chatId={selectedChatId} 
               currentUser={user}
               onBack={handleBackToChats}
+              onLoadToCryptoPanel={setCryptoPanelInput}
+              onLoadToCryptoPanel={setCryptoPanelInput}
             />
           ) : (
             <ChatList 
               currentUser={user}
               onChatSelect={handleChatSelect}
               onSignOut={handleSignOut}
+              onShowSettings={handleShowSettings}
             />
           )}
         </div>
@@ -112,6 +148,7 @@ const Index = () => {
               currentUser={user}
               onChatSelect={handleChatSelect}
               onSignOut={handleSignOut}
+              onShowSettings={handleShowSettings}
             />
           </div>
 
@@ -122,6 +159,8 @@ const Index = () => {
                 chatId={selectedChatId} 
                 currentUser={user}
                 onBack={handleBackToChats}
+              onLoadToCryptoPanel={setCryptoPanelInput}
+                onLoadToCryptoPanel={setCryptoPanelInput}
               />
             ) : (
               <div className="flex items-center justify-center h-full bg-background/50">
@@ -149,6 +188,15 @@ const Index = () => {
           </div>
         </div>
       </div>
+      
+      {/* Floating Crypto Panel */}
+      <EnhancedCryptoPanel 
+        onPasteToChat={(text) => {
+          console.log('Paste to chat:', text);
+        }}
+        inputFromChat={cryptoPanelInput}
+        onInputReceived={() => setCryptoPanelInput("")}
+      />
     </div>
   );
 };

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { supabase } from "@/integrations/supabase/client";
+import { mockAuth } from "@/lib/mock-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, MessageCircle, Shield } from "lucide-react";
 
@@ -24,35 +24,35 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
     setIsLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: {
-            display_name: displayName || email.split('@')[0],
-          },
-        },
-      });
+      const { user, error } = await mockAuth.signUp(
+        email, 
+        password, 
+        displayName || email.split('@')[0]
+      );
 
       if (error) {
         toast({
           variant: "destructive",
           title: "Sign up failed",
-          description: error.message,
+          description: error,
         });
-      } else {
+        return;
+      }
+
+      if (user) {
+        console.log('Signup successful, user:', user);
         toast({
-          title: "Account created!",
-          description: "Please check your email to verify your account.",
+          title: "Welcome!",
+          description: "Your account has been created successfully.",
         });
         onAuthSuccess();
       }
     } catch (error) {
+      console.error('Signup error:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "An unexpected error occurred",
+        description: "An unexpected error occurred during signup",
       });
     } finally {
       setIsLoading(false);
@@ -64,18 +64,16 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
     setIsLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      const { user, error } = await mockAuth.signIn(email, password);
 
       if (error) {
         toast({
           variant: "destructive",
           title: "Sign in failed",
-          description: error.message,
+          description: error,
         });
-      } else {
+      } else if (user) {
+        console.log('Signin successful, user:', user);
         toast({
           title: "Welcome back!",
           description: "You have successfully signed in.",
@@ -218,7 +216,13 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
           </CardContent>
         </Card>
 
-        <div className="text-center text-sm text-muted-foreground">
+        <div className="text-center text-sm text-muted-foreground space-y-2">
+          <p>🎭 <strong>Demo Mode:</strong> Try these accounts or create your own!</p>
+          <div className="text-xs space-y-1 bg-muted/30 rounded-lg p-3">
+            <p><strong>Demo Account 1:</strong> demo@example.com</p>
+            <p><strong>Demo Account 2:</strong> test@example.com</p>
+            <p><em>Password: any password works</em></p>
+          </div>
           <Shield className="inline h-3 w-3 mr-1" />
           Your messages are protected with end-to-end encryption
         </div>
